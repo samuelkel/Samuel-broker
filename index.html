@@ -29,6 +29,27 @@ const coins=[
 {id:'XRP',name:'XRP',symbol:'X',cls:'xrp',price:0.6241,change:1.21,cap:'$34.1B',spark:[3,4,5,4,7,6,8,6,9,10,9,13]},
 {id:'BNB',name:'BNB',symbol:'◆',cls:'btc',price:592.18,change:0.64,cap:'$87.6B',spark:[5,7,6,8,7,9,8,10,11,10,12,14]}
 ];
+const cgIds={BTC:'bitcoin',ETH:'ethereum',SOL:'solana',USDT:'tether',XRP:'ripple',BNB:'binancecoin'};
+let lastPriceUpdate=null;
+async function updateLivePrices(){
+ try{
+  const ids=Object.values(cgIds).join(',');
+  const url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+encodeURIComponent(ids)+'&price_change_percentage=24h';
+  const res=await fetch(url,{headers:{accept:'application/json'},cache:'no-store'});
+  if(!res.ok) throw new Error('Market provider returned '+res.status);
+  const rows=await res.json();
+  if(!Array.isArray(rows)||!rows.length) throw new Error('No market data received');
+  const byId=Object.fromEntries(rows.map(row=>[row.id,row]));
+  for(const c of coins){const d=byId[cgIds[c.id]];if(!d)continue;c.price=Number(d.current_price)||c.price;c.change=Number(d.price_change_percentage_24h)||0;c.cap=compactMoney(Number(d.market_cap)||0);}
+  lastPriceUpdate=new Date();
+  const route=location.hash.replace('#','')||'home';
+  const search=$('#marketSearch');const q=search?search.value:'';
+  render();
+  if(q && $('#marketSearch')){$('#marketSearch').value=q;$('#marketSearch').dispatchEvent(new Event('input',{bubbles:true}));}
+  const status=$('#priceStatus');if(status)status.textContent='Live • updated '+lastPriceUpdate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+ }catch(err){const status=$('#priceStatus');if(status)status.textContent='Live data unavailable — retrying';console.warn('Live crypto prices unavailable',err);}
+}
+function compactMoney(n){if(n>=1e12)return '$'+(n/1e12).toFixed(2)+'T';if(n>=1e9)return '$'+(n/1e9).toFixed(2)+'B';if(n>=1e6)return '$'+(n/1e6).toFixed(2)+'M';return '$'+n.toLocaleString('en-US',{maximumFractionDigits:0});}
 const fmt=n=>n>=1000?'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:n<1?4:2});
 function icon(c){return `<span class="coin-symbol ${c.cls}">${c.symbol}</span>`}
 function spark(c){let pts=c.spark.map((v,i)=>`${i*5},${23-v}`).join(' ');return `<svg class="spark" viewBox="0 0 58 24" aria-label="Illustrative trend"><polyline points="${pts}" fill="none" stroke="${c.change>=0?'#32d49a':'#ff6c86'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`}
@@ -41,7 +62,7 @@ function home(){return `<main><section class="landing wrap"><div class="hero-gri
 function sidebar(active){let groups=[['OVERVIEW',[['▦','Dashboard','dashboard'],['◉','Markets','markets'],['☆','Watchlist','watchlist']]],['PORTFOLIO',[['◫','My assets','assets'],['↔','Transactions','transactions']]],['RESOURCES',[['▤','Learn','learn'],['♢','Security','security'],['⚙','Settings','settings']]]];return `<aside class="sidebar" id="sidebar">${groups.map(([title,items])=>`<div class="side-label">${title}</div>${items.map(([i,n,r])=>`<a href="#${r}" class="navitem ${active===r?'active':''}" data-route="${r}"><span class="navicon">${i}</span>${n}</a>`).join('')}`).join('')}<div class="side-bottom"><div class="pill">DEMO ACCOUNT</div><p class="small muted">No real funds connected. Sample data only.</p><button class="btn ghost sm" style="width:100%" data-route="settings">Account settings</button></div></aside>`}
 function dashboardPage(page){let title={dashboard:'Dashboard',markets:'Markets',watchlist:'Watchlist',assets:'My assets',transactions:'Transactions',learn:'Learn & insights',security:'Security center',settings:'Account settings'}[page]||'Dashboard';let body='';
 if(page==='dashboard')body=`<div class="stats"><div class="card stat"><div class="stat-label">Demo portfolio value ⓘ</div><div class="stat-value">$24,680.42</div><div class="positive small">+3.24% <span class="muted">illustrative</span></div></div><div class="card stat"><div class="stat-label">Assets held</div><div class="stat-value">4</div><div class="muted small">Sample allocation</div></div><div class="card stat"><div class="stat-label">Watchlist</div><div class="stat-value" id="watchCount">${getWatch().length}</div><div class="muted small">Tracked assets</div></div><div class="card stat"><div class="stat-label">Account status</div><div class="stat-value" style="font-size:18px">Demo mode</div><div class="muted small">No deposits enabled</div></div></div><div class="dashboard-grid"><div class="card cardpad"><div class="panel-head"><div><div class="muted small">PORTFOLIO OVERVIEW</div><h2>Value over time <span class="pill">Illustrative</span></h2></div><div class="range">${['1D','1W','1M','1Y','ALL'].map((v,i)=>`<button class="${i===2?'active':''}" data-action="range">${v}</button>`).join('')}</div></div>${chart('dashChart',205)}<div class="muted small">Chart is illustrative and does not represent real investment performance.</div></div><div class="card cardpad"><div class="panel-head"><h2>Watchlist</h2><button class="btn ghost sm" data-route="watchlist">Manage →</button></div><div class="watchlist">${getWatch().slice(0,4).map(id=>{let c=coins.find(x=>x.id===id)||coins[0];return `<div class="watchrow"><div class="watchleft">${icon(c)}<div><b>${c.name}</b><small>${c.id}</small></div></div><div class="watchprice">${fmt(c.price)}<div class="${c.change>=0?'positive':'negative'} small">${c.change>0?'+':''}${c.change}%</div></div></div>`}).join('')||'<div class="empty">Your watchlist is empty. Add assets from Markets.</div>'}</div></div></div><div class="card cardpad" style="margin-top:15px"><div class="panel-head"><h2>Assets overview</h2><button class="btn ghost sm" data-route="assets">View assets →</button></div>${assetsTable()}</div>`;
-else if(page==='markets')body=`<div class="card cardpad"><div class="panel-head"><div><h2>Cryptocurrency market</h2><div class="muted small">Reference data in this prototype may be static. Connect a verified provider for current market data.</div></div><input class="search" id="marketSearch" placeholder="Search assets…" aria-label="Search assets"></div><div id="marketTable">${marketsTable()}</div></div>`;
+else if(page==='markets')body=`<div class="card cardpad"><div class="panel-head"><div><h2>Cryptocurrency market</h2><div class="muted small">Live market data from CoinGecko, refreshed about every 60 seconds. Prices are indicative and may differ by exchange. <span id="priceStatus" class="pill">Connecting to market data…</span></div></div><input class="search" id="marketSearch" placeholder="Search assets…" aria-label="Search assets"></div><div id="marketTable">${marketsTable()}</div></div>`;
 else if(page==='watchlist')body=`<div class="card cardpad"><div class="panel-head"><h2>Your watchlist</h2><button class="btn ghost sm" data-route="markets">Add assets +</button></div><div id="watchTable">${marketsTableForWatch()}</div></div>`;
 else if(page==='assets')body=`<div class="stats"><div class="card stat"><div class="stat-label">Sample asset value</div><div class="stat-value">$24,680.42</div><div class="muted small">Illustrative only</div></div><div class="card stat"><div class="stat-label">Asset types</div><div class="stat-value">4</div><div class="muted small">Sample holdings</div></div></div><div class="card cardpad"><div class="panel-head"><h2>Asset allocation</h2><span class="pill">Sample portfolio</span></div>${assetsTable()}</div>`;
 else if(page==='transactions')body=`<div class="card cardpad"><div class="panel-head"><div><h2>Transaction history</h2><div class="muted small">Example records only — not real financial transactions.</div></div><button class="btn ghost sm" data-action="export">Export sample CSV</button></div><div class="table-wrap"><table><thead><tr><th>TYPE</th><th>ASSET</th><th>DATE</th><th>STATUS</th><th>AMOUNT</th></tr></thead><tbody>${[['Buy','BTC','Oct 18, 2026','Demo record','$450.00'],['Buy','ETH','Oct 14, 2026','Demo record','$220.00'],['Receive','USDT','Oct 09, 2026','Demo record','$100.00'],['Buy','SOL','Oct 02, 2026','Demo record','$80.00']].map(x=>`<tr>${x.map((v,i)=>`<td>${i===3?'<span class="pill">'+v+'</span>':v}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
@@ -66,5 +87,7 @@ document.addEventListener('input',e=>{if(e.target.id==='marketSearch'){let q=e.t
 $('#menuToggle').addEventListener('click',()=>$('#sidebar')?.classList.toggle('open'));
 window.addEventListener('hashchange',render);
 render();
+updateLivePrices();
+setInterval(updateLivePrices,60000);
 </script>
 </body></html>
